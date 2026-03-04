@@ -3,10 +3,10 @@ import { useLocation } from "react-router-dom";
 export default function Background() {
   const location = useLocation();
   const hideNavbar = location.pathname === "/login";
-  const loginBg = "/curalink-login-bg.svg";
-  const mobLoginBg = "/mobileLoginBg.svg";
-  const tabletLoginBg = "/tabletLoginImage.svg";
-  const defaultBg = "/bg2.png";
+  const loginBg = "/curalink-login-bg.png";
+  const mobLoginBg = "/mobileLoginBg.png";
+  const tabletLoginBg = "/tabletLoginImage.png";
+  const defaultBg = "/bg2.jpeg";
   return (
     <div className="fixed inset-0 -z-50">
       {/* background image */}
