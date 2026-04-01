@@ -22,23 +22,27 @@ export default function LoginPage() {
     }
   }, []);
 
-  const handleDemo = () => {
-    localStorage.setItem('authToken',       'demo');
-    localStorage.setItem('authMode',        'demo');
-    localStorage.setItem('userEmail',       'demo');
-    localStorage.setItem('isAdmin',         'false');
-    localStorage.setItem('userPermissions', JSON.stringify(ALL_PERMISSION_IDS));
-    localStorage.setItem('isAuthenticated', 'true');
-    navigate('/dashboard');
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-      const { user } = await loginUser(email, password);
+      let user;
+
+      // Dummy admin login (supports both email and username)
+      if ((email === 'admin@hospital.com' || email === 'admin') && password === 'admin123') {
+        user = {
+          id: 'dummy-admin-id',
+          username: 'admin',
+          isAdmin: true,
+          permissions: ALL_PERMISSION_IDS,
+        };
+      } else {
+        // Call real API
+        const response = await loginUser(email, password);
+        user = response.user;
+      }
 
       if (rememberMe) {
         localStorage.setItem('rememberedEmail', email);
@@ -70,7 +74,7 @@ export default function LoginPage() {
         <div className='h-[250px] md:h-[350px] lg:hidden'></div>
       <div className="flex flex-col lg:min-h-screen space-y-6 w-full md:w-[50%] lg:w-[40%] justify-center m-auto p-7 lg:mr-16 lg:p-10 z-10">
         <h1 className="text-3xl leading-4  lg:text-5xl font-bold text-center text-white">Welcome Again!</h1>
-        
+
         <h3 className="text-xl leading-4 lg:text-3xl font-semibold text-white text-center">Log in</h3>
 
         {error && (
@@ -81,10 +85,10 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6 flex flex-col justify-center">
           <div>
-            <label className="block text-xl text-white mb-1">Username</label>
+            <label className="block text-xl text-white mb-1">Email or Username</label>
             <input
               type="text"
-              placeholder="Enter username"
+              placeholder="Enter email or username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 border rounded-[16px] outline-none focus:ring-2 focus:ring-slate-400"
@@ -128,20 +132,6 @@ export default function LoginPage() {
             {isLoading ? 'Signing In...' : 'Log In'}
           </button>
         </form>
-
-        <div className="flex items-center gap-3 mt-2">
-          <div className="flex-1 h-px bg-white/30" />
-          <span className="text-white/60 text-sm">or</span>
-          <div className="flex-1 h-px bg-white/30" />
-        </div>
-
-        <button
-          type="button"
-          onClick={handleDemo}
-          className="w-full py-2 px-3 rounded-full border border-white/40 text-white hover:bg-white/10 transition text-sm font-medium"
-        >
-          Continue as Demo
-        </button>
       </div>
       </div>
       </>

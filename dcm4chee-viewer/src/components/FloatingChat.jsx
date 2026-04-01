@@ -68,19 +68,19 @@ export default function FloatingChat() {
           <div className="flex items-center justify-between px-4 py-2.5 bg-[#0a6e79] text-white">
             <div className="flex items-center gap-2">
               <i className="fa-solid fa-robot text-sm" />
-              <span className="font-semibold text-sm">Qwen Assistant</span>
+              <span className="font-semibold text-sm">Cura Assistant</span>
             </div>
             <div className="flex items-center gap-2">
               {messages.length > 0 && (
                 <button onClick={() => { setMessages([]); setError(null); }}
                   title="Clear chat"
                   className="text-white/70 hover:text-white transition text-xs">
-                  <i className="fa-solid fa-trash-can" />
+                  <i className="fa-solid fa-trash-can text-[#0a6e79]" />
                 </button>
               )}
               <button onClick={() => setOpen(false)}
                 className="text-white/70 hover:text-white transition">
-                <i className="fa-solid fa-xmark" />
+                <i className="fa-solid fa-xmark text-[#0a6e79]" />
               </button>
             </div>
           </div>
@@ -167,12 +167,12 @@ export default function FloatingChat() {
       {/* FAB toggle button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className={`w-13 h-13 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
-          open
-            ? 'bg-gray-600 hover:bg-gray-700'
-            : 'bg-[#0a6e79] hover:bg-[#1E7586]'
-        }`}
-        style={{ width: 52, height: 52 }}
+        className="rounded-full shadow-lg flex items-center justify-center transition-all duration-200"
+        style={{
+          width: 52,
+          height: 52,
+          backgroundColor: open ? '#4b5563' : '#0a6e79',
+        }}
         title="AI Assistant"
       >
         <i className={`text-white text-lg fa-solid ${open ? 'fa-xmark' : 'fa-robot'}`} />

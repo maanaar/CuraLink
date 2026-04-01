@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from urllib.parse import parse_qs
 import asyncio
 import os
 import sqlite3
@@ -798,6 +799,35 @@ async def _get_all_device_configs(token: str) -> list[tuple[str, dict]]:
     return list(zip(names, configs))
 
 
+@app.delete("/api/exporters/{exporter_id}")
+async def delete_exporter(exporter_id: str, deviceName: Optional[str] = None):
+    try:
+        token = await get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        device_configs = await _get_all_device_configs(token)
+        for name, config in device_configs:
+            if deviceName and name != deviceName:
+                continue
+            archive = config.get("dcmDevice", {}).get("dcmArchiveDevice", {})
+            exporters = archive.get("dcmExporter", [])
+            new_exporters = [e for e in exporters if e.get("dcmExporterID") != exporter_id]
+            if len(new_exporters) == len(exporters):
+                continue
+            archive["dcmExporter"] = new_exporters
+            put = await client.put(
+                f"{DCM4CHEE_URL}/dcm4chee-arc/devices/{name}",
+                json=config, headers={**headers, "Content-Type": "application/json"},
+            )
+            if put.status_code not in (200, 204):
+                raise HTTPException(status_code=put.status_code, detail=put.text)
+            return {"success": True, "exporterID": exporter_id, "device": name}
+        raise HTTPException(status_code=404, detail=f"Exporter '{exporter_id}' not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/exporters")
 async def list_exporters():
     try:
@@ -994,6 +1024,195 @@ async def list_export_tasks():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/export-tasks/list")
+async def list_export_task_items(
+    exporterID: Optional[str] = None,
+    deviceName: Optional[str] = None,
+    status: Optional[str] = None,
+    studyInstanceUID: Optional[str] = None,
+    batchID: Optional[str] = None,
+    createdTime: Optional[str] = None,
+    updatedTime: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    orderby: Optional[str] = "-updatedTime",
+):
+    try:
+        token = await get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        params: Dict = {"limit": limit, "offset": offset}
+        if exporterID: params["exporterID"] = exporterID
+        if deviceName: params["deviceName"] = deviceName
+        if status: params["status"] = status
+        if studyInstanceUID: params["StudyInstanceUID"] = studyInstanceUID
+        if batchID: params["batchID"] = batchID
+        if createdTime: params["createdTime"] = createdTime
+        if updatedTime: params["updatedTime"] = updatedTime
+        if orderby: params["orderby"] = orderby
+        resp = await client.get(
+            f"{DCM4CHEE_URL}/dcm4chee-arc/monitor/export",
+            params=params, headers=headers, timeout=15,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export-tasks/count")
+async def count_export_tasks_filtered(
+    exporterID: Optional[str] = None,
+    deviceName: Optional[str] = None,
+    status: Optional[str] = None,
+    studyInstanceUID: Optional[str] = None,
+    batchID: Optional[str] = None,
+    createdTime: Optional[str] = None,
+    updatedTime: Optional[str] = None,
+):
+    try:
+        token = await get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        params: Dict = {}
+        if exporterID: params["exporterID"] = exporterID
+        if deviceName: params["deviceName"] = deviceName
+        if status: params["status"] = status
+        if studyInstanceUID: params["StudyInstanceUID"] = studyInstanceUID
+        if batchID: params["batchID"] = batchID
+        if createdTime: params["createdTime"] = createdTime
+        if updatedTime: params["updatedTime"] = updatedTime
+        resp = await client.get(
+            f"{DCM4CHEE_URL}/dcm4chee-arc/monitor/export/count",
+            params=params, headers=headers, timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return {"count": data.get("count", 0) if isinstance(data, dict) else int(data)}
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/export-tasks/cancel")
+async def cancel_export_tasks(request: Request):
+    try:
+        body = await request.json()
+        token = await get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {k: v for k, v in body.items() if v}
+        resp = await client.post(
+            f"{DCM4CHEE_URL}/dcm4chee-arc/monitor/export/cancel",
+            params=params, headers=headers, timeout=15,
+        )
+        if resp.status_code in (200, 204):
+            return {"success": True, "count": resp.json() if resp.text else 0}
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/export-tasks/reschedule")
+async def reschedule_export_tasks(request: Request):
+    try:
+        body = await request.json()
+        token = await get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {k: v for k, v in body.items() if v}
+        resp = await client.post(
+            f"{DCM4CHEE_URL}/dcm4chee-arc/monitor/export/reschedule",
+            params=params, headers=headers, timeout=15,
+        )
+        if resp.status_code in (200, 204):
+            return {"success": True, "count": resp.json() if resp.text else 0}
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/export-tasks")
+async def delete_export_tasks(
+    exporterID: Optional[str] = None,
+    deviceName: Optional[str] = None,
+    status: Optional[str] = None,
+    studyInstanceUID: Optional[str] = None,
+    batchID: Optional[str] = None,
+    createdTime: Optional[str] = None,
+    updatedTime: Optional[str] = None,
+):
+    try:
+        token = await get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        params: Dict = {}
+        if exporterID: params["exporterID"] = exporterID
+        if deviceName: params["deviceName"] = deviceName
+        if status: params["status"] = status
+        if studyInstanceUID: params["StudyInstanceUID"] = studyInstanceUID
+        if batchID: params["batchID"] = batchID
+        if createdTime: params["createdTime"] = createdTime
+        if updatedTime: params["updatedTime"] = updatedTime
+        resp = await client.delete(
+            f"{DCM4CHEE_URL}/dcm4chee-arc/monitor/export",
+            params=params, headers=headers, timeout=15,
+        )
+        if resp.status_code in (200, 204):
+            return {"success": True, "count": resp.json() if resp.text else 0}
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export-tasks/csv")
+async def download_export_tasks_csv(
+    exporterID: Optional[str] = None,
+    deviceName: Optional[str] = None,
+    status: Optional[str] = None,
+    studyInstanceUID: Optional[str] = None,
+    batchID: Optional[str] = None,
+    createdTime: Optional[str] = None,
+    updatedTime: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+):
+    try:
+        from fastapi.responses import StreamingResponse
+        token = await get_token()
+        headers = {"Authorization": f"Bearer {token}", "Accept": "text/csv"}
+        params: Dict = {"limit": limit, "offset": offset}
+        if exporterID: params["exporterID"] = exporterID
+        if deviceName: params["deviceName"] = deviceName
+        if status: params["status"] = status
+        if studyInstanceUID: params["StudyInstanceUID"] = studyInstanceUID
+        if batchID: params["batchID"] = batchID
+        if createdTime: params["createdTime"] = createdTime
+        if updatedTime: params["updatedTime"] = updatedTime
+        resp = await client.get(
+            f"{DCM4CHEE_URL}/dcm4chee-arc/monitor/export",
+            params=params, headers=headers, timeout=30,
+        )
+        if resp.status_code == 200:
+            import io
+            return StreamingResponse(
+                io.BytesIO(resp.content),
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=export-tasks.csv"},
+            )
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # USER MANAGEMENT  (Curalink internal SQLite database)
 # ============================================================================
@@ -1010,17 +1229,17 @@ def _hash_pw(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 
-def _row_to_user(row: tuple) -> dict:
-    uid, username, email, first_name, last_name, _, is_admin, enabled, permissions = row
+def _row_to_user(row) -> dict:
+    """Convert a DB row to a user dict. Works with tuple rows or sqlite3.Row."""
     return {
-        "id":          uid,
-        "username":    username,
-        "email":       email,
-        "firstName":   first_name,
-        "lastName":    last_name,
-        "isAdmin":     bool(is_admin),
-        "enabled":     bool(enabled),
-        "permissions": json.loads(permissions or "[]"),
+        "id":          row[0],
+        "username":    row[1],
+        "email":       row[2] if len(row) > 2 else '',
+        "firstName":   row[3] if len(row) > 3 else '',
+        "lastName":    row[4] if len(row) > 4 else '',
+        "isAdmin":     bool(row[6]) if len(row) > 6 else False,
+        "enabled":     bool(row[7]) if len(row) > 7 else True,
+        "permissions": json.loads(row[8] or "[]") if len(row) > 8 else [],
     }
 
 
@@ -1040,13 +1259,31 @@ def _init_db() -> None:
             permissions   TEXT DEFAULT '[]'
         )
     """)
-    # Seed a default admin account if the table is empty
-    c.execute("SELECT COUNT(*) FROM curalink_users")
+    # Schema migration: add any missing columns from a previous schema version
+    existing_cols = {row[1] for row in c.execute("PRAGMA table_info(curalink_users)")}
+    for col, definition in [
+        ('email',       "TEXT DEFAULT ''"),
+        ('first_name',  "TEXT DEFAULT ''"),
+        ('last_name',   "TEXT DEFAULT ''"),
+        ('is_admin',    "INTEGER DEFAULT 0"),
+        ('enabled',     "INTEGER DEFAULT 1"),
+        ('permissions', "TEXT DEFAULT '[]'"),
+    ]:
+        if col not in existing_cols:
+            c.execute(f"ALTER TABLE curalink_users ADD COLUMN {col} {definition}")
+    # Ensure the default admin account exists with correct credentials
+    c.execute("SELECT COUNT(*) FROM curalink_users WHERE username = 'admin'")
     if c.fetchone()[0] == 0:
         c.execute(
             "INSERT INTO curalink_users VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (str(uuid.uuid4()), "admin", "admin@hospital.com", "Admin", "User",
              _hash_pw("admin123"), 1, 1, json.dumps(_ALL_PERM_IDS))
+        )
+    else:
+        # Patch existing admin: ensure email is set (may be empty from old schema)
+        c.execute(
+            "UPDATE curalink_users SET email = 'admin@hospital.com', enabled = 1 "
+            "WHERE username = 'admin' AND (email = '' OR email IS NULL)"
         )
     conn.commit()
     conn.close()
@@ -1057,20 +1294,23 @@ _init_db()
 
 @app.post("/api/auth/login")
 async def curalink_login(request: Request):
-    """Authenticate a Curalink user and return their profile + permissions."""
+    """Authenticate a Curalink user by email and return their profile + permissions."""
     try:
         body     = await request.json()
-        username = body.get("username", "").strip()
+        email    = (body.get("email") or body.get("username") or "").strip()
         password = body.get("password", "")
-        if not username or not password:
-            raise HTTPException(status_code=400, detail="Username and password required")
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="Username/email and password required")
         conn = sqlite3.connect(DB_PATH)
         c    = conn.cursor()
-        c.execute("SELECT * FROM curalink_users WHERE username = ? AND enabled = 1", (username,))
+        c.execute(
+            "SELECT * FROM curalink_users WHERE (email = ? OR username = ?) AND enabled = 1",
+            (email, email),
+        )
         row = c.fetchone()
         conn.close()
         if not row or row[5] != _hash_pw(password):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
         return {"success": True, "user": _row_to_user(row)}
     except HTTPException:
         raise

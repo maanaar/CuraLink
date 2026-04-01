@@ -7,7 +7,7 @@ const inp =
   'w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs outline-none ' +
   'focus:ring-1 focus:ring-[#0a6e79] focus:border-[#0a6e79] bg-white placeholder-gray-400';
 
-const BLANK = { username: '', email: '', firstName: '', lastName: '', password: '', permissions: [] };
+const BLANK = { username: '', email: '', firstName: '', lastName: '', password: '', isAdmin: false, permissions: [] };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 const enabledBadge = (enabled) =>
@@ -59,9 +59,10 @@ export default function UsersPage() {
   const [saveError, setSaveError] = useState(null);
 
   // inline permission editor state
-  const [editingPerms, setEditingPerms] = useState(null); // user id
-  const [pendingPerms, setPendingPerms] = useState([]);
-  const [permsSaving,  setPermsSaving]  = useState(false);
+  const [editingPerms,   setEditingPerms]   = useState(null); // user id
+  const [pendingPerms,   setPendingPerms]   = useState([]);
+  const [pendingIsAdmin, setPendingIsAdmin] = useState(false);
+  const [permsSaving,    setPermsSaving]    = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -95,6 +96,7 @@ export default function UsersPage() {
   // ── create ──────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!newUser.username.trim()) { setSaveError('Username is required.'); return; }
+    if (!newUser.password) { setSaveError('Password is required.'); return; }
     setSaving(true); setSaveError(null);
     try {
       await createUser(newUser);
@@ -109,17 +111,20 @@ export default function UsersPage() {
   const openPermEditor = useCallback((user) => {
     setEditingPerms(user.id);
     setPendingPerms(user.permissions || []);
+    setPendingIsAdmin(user.isAdmin || false);
   }, []);
 
   const handleSavePerms = useCallback(async (userId) => {
     setPermsSaving(true);
     try {
-      await setUserPermissions(userId, pendingPerms);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, permissions: pendingPerms } : u));
+      await updateUser(userId, { isAdmin: pendingIsAdmin, permissions: pendingIsAdmin ? ALL_PERMISSION_IDS : pendingPerms });
+      setUsers(prev => prev.map(u => u.id === userId
+        ? { ...u, isAdmin: pendingIsAdmin, permissions: pendingIsAdmin ? ALL_PERMISSION_IDS : pendingPerms }
+        : u));
       setEditingPerms(null);
-    } catch (e) { alert(`Failed to update permissions: ${e.message}`); }
+    } catch (e) { alert(`Failed to update access: ${e.message}`); }
     finally { setPermsSaving(false); }
-  }, [pendingPerms]);
+  }, [pendingIsAdmin, pendingPerms]);
 
   // ── filter ──────────────────────────────────────────────────────────────────
   const filtered = useMemo(() => users.filter(u => {
@@ -221,7 +226,14 @@ export default function UsersPage() {
                         <tr key={user.id}
                           className={`border-t border-gray-100 hover:bg-[#00768308] transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                           <td className="px-4 py-3 text-gray-400">{idx + 1}</td>
-                          <td className="px-4 py-3 font-semibold text-[#0a6e79]">{user.username}</td>
+                          <td className="px-4 py-3 font-semibold text-[#0a6e79]">
+                            <div className="flex items-center gap-1.5">
+                              {user.username}
+                              {user.isAdmin && (
+                                <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-bold uppercase">Admin</span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3 text-gray-700">
                             {[user.firstName, user.lastName].filter(Boolean).join(' ') || '—'}
                           </td>
@@ -253,15 +265,28 @@ export default function UsersPage() {
                           <tr className="border-t border-[#0a6e79]/20 bg-teal-50/60">
                             <td colSpan={7} className="px-6 py-4">
                               <div className="mb-3 flex items-center justify-between">
-                                <span className="text-sm font-semibold text-[#0a6e79]">Screen Access for <em>{user.username}</em></span>
-                                <div className="flex gap-2">
-                                  <button onClick={() => setPendingPerms(ALL_PERMISSION_IDS)}
-                                    className="text-xs text-[#0a6e79] underline">All</button>
-                                  <button onClick={() => setPendingPerms([])}
-                                    className="text-xs text-gray-500 underline">None</button>
-                                </div>
+                                <span className="text-sm font-semibold text-[#0a6e79]">Access for <em>{user.username}</em></span>
+                                {!pendingIsAdmin && (
+                                  <div className="flex gap-2">
+                                    <button onClick={() => setPendingPerms(ALL_PERMISSION_IDS)}
+                                      className="text-xs text-[#0a6e79] underline">All</button>
+                                    <button onClick={() => setPendingPerms([])}
+                                      className="text-xs text-gray-500 underline">None</button>
+                                  </div>
+                                )}
                               </div>
-                              <PermissionCheckboxes selected={pendingPerms} onChange={setPendingPerms} />
+                              <label className="flex items-center gap-2 mb-3 cursor-pointer w-fit">
+                                <input
+                                  type="checkbox"
+                                  className="accent-[#0a6e79] w-3.5 h-3.5"
+                                  checked={pendingIsAdmin}
+                                  onChange={e => setPendingIsAdmin(e.target.checked)}
+                                />
+                                <span className="text-xs font-semibold text-purple-700">Admin (full access + Users page)</span>
+                              </label>
+                              {!pendingIsAdmin && (
+                                <PermissionCheckboxes selected={pendingPerms} onChange={setPendingPerms} />
+                              )}
                               <div className="flex gap-2 mt-3">
                                 <button onClick={() => handleSavePerms(user.id)} disabled={permsSaving}
                                   className="px-4 py-1.5 bg-[#0a6e79] hover:bg-[#1E7586] text-white rounded-lg text-xs font-semibold transition disabled:opacity-50">
@@ -303,10 +328,21 @@ export default function UsersPage() {
                             onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} />
                         </td>
                         <td className="px-3 py-3" colSpan={2}>
-                          <PermissionCheckboxes
-                            selected={newUser.permissions}
-                            onChange={perms => setNewUser(p => ({ ...p, permissions: perms }))}
-                          />
+                          <label className="flex items-center gap-2 mb-2 cursor-pointer w-fit">
+                            <input
+                              type="checkbox"
+                              className="accent-[#0a6e79] w-3.5 h-3.5"
+                              checked={newUser.isAdmin}
+                              onChange={e => setNewUser(p => ({ ...p, isAdmin: e.target.checked, permissions: e.target.checked ? ALL_PERMISSION_IDS : p.permissions }))}
+                            />
+                            <span className="text-xs font-semibold text-purple-700">Admin (full access + Users page)</span>
+                          </label>
+                          {!newUser.isAdmin && (
+                            <PermissionCheckboxes
+                              selected={newUser.permissions}
+                              onChange={perms => setNewUser(p => ({ ...p, permissions: perms }))}
+                            />
+                          )}
                           {saveError && <p className="text-red-600 text-xs mt-1">{saveError}</p>}
                           <div className="flex gap-2 mt-2">
                             <button onClick={handleSave} disabled={saving}
@@ -330,7 +366,12 @@ export default function UsersPage() {
                 {filtered.map(user => (
                   <div key={user.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="font-semibold text-[#0a6e79] text-sm">{user.username}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-[#0a6e79] text-sm">{user.username}</span>
+                        {user.isAdmin && (
+                          <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-bold uppercase">Admin</span>
+                        )}
+                      </div>
                       <span className={enabledBadge(user.enabled)} onClick={() => handleToggleEnabled(user)}>
                         {user.enabled ? 'Enabled' : 'Disabled'}
                       </span>
@@ -349,13 +390,26 @@ export default function UsersPage() {
                       {editingPerms === user.id && (
                         <div className="border border-[#0a6e79]/30 rounded-lg p-3 bg-teal-50/50">
                           <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs text-[#0a6e79] font-semibold">Screen Access</p>
-                            <div className="flex gap-2">
-                              <button onClick={() => setPendingPerms(ALL_PERMISSION_IDS)} className="text-xs text-[#0a6e79] underline">All</button>
-                              <button onClick={() => setPendingPerms([])} className="text-xs text-gray-500 underline">None</button>
-                            </div>
+                            <p className="text-xs text-[#0a6e79] font-semibold">Access Rights</p>
+                            {!pendingIsAdmin && (
+                              <div className="flex gap-2">
+                                <button onClick={() => setPendingPerms(ALL_PERMISSION_IDS)} className="text-xs text-[#0a6e79] underline">All</button>
+                                <button onClick={() => setPendingPerms([])} className="text-xs text-gray-500 underline">None</button>
+                              </div>
+                            )}
                           </div>
-                          <PermissionCheckboxes selected={pendingPerms} onChange={setPendingPerms} />
+                          <label className="flex items-center gap-2 mb-2 cursor-pointer w-fit">
+                            <input
+                              type="checkbox"
+                              className="accent-[#0a6e79] w-3.5 h-3.5"
+                              checked={pendingIsAdmin}
+                              onChange={e => setPendingIsAdmin(e.target.checked)}
+                            />
+                            <span className="text-xs font-semibold text-purple-700">Admin (full access + Users page)</span>
+                          </label>
+                          {!pendingIsAdmin && (
+                            <PermissionCheckboxes selected={pendingPerms} onChange={setPendingPerms} />
+                          )}
                           <div className="flex gap-2 mt-2">
                             <button onClick={() => handleSavePerms(user.id)} disabled={permsSaving}
                               className="flex-1 py-1.5 bg-[#0a6e79] text-white rounded-lg text-xs font-semibold transition disabled:opacity-50">
@@ -397,11 +451,24 @@ export default function UsersPage() {
                       </div>
                     ))}
                     <div>
-                      <label className="text-xs text-gray-500 uppercase font-medium block mb-1">Screen Access</label>
-                      <PermissionCheckboxes
-                        selected={newUser.permissions}
-                        onChange={perms => setNewUser(p => ({ ...p, permissions: perms }))}
-                      />
+                      <label className="flex items-center gap-2 mb-2 cursor-pointer w-fit">
+                        <input
+                          type="checkbox"
+                          className="accent-[#0a6e79] w-3.5 h-3.5"
+                          checked={newUser.isAdmin}
+                          onChange={e => setNewUser(p => ({ ...p, isAdmin: e.target.checked, permissions: e.target.checked ? ALL_PERMISSION_IDS : p.permissions }))}
+                        />
+                        <span className="text-xs font-semibold text-purple-700">Admin (full access & manage users accounts)</span>
+                      </label>
+                      {!newUser.isAdmin && (
+                        <>
+                          <label className="text-xs text-gray-500 uppercase font-medium block mb-1">Screen Access</label>
+                          <PermissionCheckboxes
+                            selected={newUser.permissions}
+                            onChange={perms => setNewUser(p => ({ ...p, permissions: perms }))}
+                          />
+                        </>
+                      )}
                     </div>
                     {saveError && <p className="text-red-600 text-xs">{saveError}</p>}
                     <div className="flex gap-2 pt-1">
